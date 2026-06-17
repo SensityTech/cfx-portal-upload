@@ -296443,7 +296443,7 @@ var Urls;
     Urls["COMPLETE_UPLOAD"] = "assets/{id}/versions/{version_id}/complete-upload";
     Urls["ASSET_DETAIL"] = "assets/{id}";
     Urls["DELETE_VERSION"] = "assets/{id}/versions/{version_id}";
-    Urls["DOWNLOAD"] = "assets/{id}/versions/{version_id}/download";
+    Urls["DOWNLOAD"] = "assets/{id}/download";
 })(Urls || (exports.Urls = Urls = {}));
 
 
@@ -296865,15 +296865,16 @@ async function waitForVersionActive(assetId, versionId, cookies, timeoutMs = 300
  * @param downloadPath The file path where the asset will be saved.
  */
 async function downloadAsset(assetId, versionId, cookies, downloadPath) {
-    const endpoint = getUrl('DOWNLOAD', { id: assetId, version_id: versionId });
-    core.info(`Fetching download URL from ${endpoint} ...`);
+    const endpoint = getUrl('DOWNLOAD', { id: assetId });
+    core.info(`Fetching download URL from ${endpoint} (version ${versionId}) ...`);
     const initial = await axios_1.default.get(endpoint, {
         headers: { Cookie: cookies },
         responseType: 'json'
     });
-    const realUrl = initial.data.url;
+    const realUrl = initial.data?.url;
     if (!realUrl) {
-        throw new Error('Download endpoint did not return a URL.');
+        throw new Error('Download endpoint did not return a URL. Body: ' +
+            JSON.stringify(initial.data));
     }
     core.info('Downloading escrow-encrypted asset ...');
     const response = await axios_1.default.get(realUrl, { responseType: 'stream' });

@@ -45,5 +45,5 @@ export enum Urls {
   COMPLETE_UPLOAD = 'assets/{id}/versions/{version_id}/complete-upload',
   ASSET_DETAIL = 'assets/{id}',
   DELETE_VERSION = 'assets/{id}/versions/{version_id}',
-  DOWNLOAD = 'assets/{id}/versions/{version_id}/download'
+  DOWNLOAD = 'assets/{id}/download'
 }

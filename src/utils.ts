@@ -500,17 +500,20 @@ export async function downloadAsset(
   cookies: string,
   downloadPath: string
 ): Promise<void> {
-  const endpoint = getUrl('DOWNLOAD', { id: assetId, version_id: versionId })
-  core.info(`Fetching download URL from ${endpoint} ...`)
+  const endpoint = getUrl('DOWNLOAD', { id: assetId })
+  core.info(`Fetching download URL from ${endpoint} (version ${versionId}) ...`)
 
   const initial = await axios.get<DownloadUrlResponse>(endpoint, {
     headers: { Cookie: cookies },
     responseType: 'json'
   })
 
-  const realUrl = initial.data.url
+  const realUrl = initial.data?.url
   if (!realUrl) {
-    throw new Error('Download endpoint did not return a URL.')
+    throw new Error(
+      'Download endpoint did not return a URL. Body: ' +
+        JSON.stringify(initial.data)
+    )
   }
 
   core.info('Downloading escrow-encrypted asset ...')
