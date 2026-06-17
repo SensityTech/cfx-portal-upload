@@ -5,7 +5,7 @@ import axios from 'axios'
 
 import { createReadStream, statSync } from 'fs'
 import { basename } from 'path'
-import { ReUploadResponse, SSOResponseBody } from './types'
+import { AssetDetail, ReUploadResponse, SSOResponseBody } from './types'
 import {
   deleteIfExists,
   resolveAssetId,
@@ -95,6 +95,27 @@ export async function run(): Promise<void> {
 
     if (page.url().includes('portal.cfx.re')) {
       if (skipUpload) {
+        if (shouldDownload) {
+          core.info(
+            'Skip upload requested with download: fetching latest active version ...'
+          )
+          const cookies = await getCookies(browser)
+          if (assetName && !assetId) {
+            assetId = await resolveAssetId(assetName, cookies)
+          }
+          const detail = await axios.get<AssetDetail>(
+            getUrl('ASSET_DETAIL', { id: assetId }),
+            { headers: { Cookie: cookies } }
+          )
+          const active = [...detail.data.versions]
+            .sort((a, b) => b.id - a.id)
+            .find(v => v.state === 'active')
+          if (!active) {
+            throw new Error('No active version available to download.')
+          }
+          await downloadAsset(assetId, active.id, cookies, downloadPath)
+          return
+        }
         core.info('Redirected to CFX Portal. Skipping upload ...')
         return
       }

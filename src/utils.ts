@@ -1,5 +1,10 @@
 import { Browser, getInstalledBrowsers, install } from '@puppeteer/browsers'
-import { AssetDetail, SearchResponse, Urls } from './types'
+import {
+  AssetDetail,
+  DownloadUrlResponse,
+  SearchResponse,
+  Urls
+} from './types'
 import { homedir } from 'os'
 import { join } from 'path'
 
@@ -525,10 +530,26 @@ export async function downloadAsset(
     version_id: versionId,
     pack_id: packId
   })
-  core.info(`Downloading escrow-encrypted asset from ${endpoint} ...`)
+  core.info(`Fetching signed download URL from ${endpoint} ...`)
 
-  const response = await axios.get(endpoint, {
+  // The pack download endpoint returns a JSON { url } with a signed CDN URL.
+  const initial = await axios.get<DownloadUrlResponse>(endpoint, {
     headers: { Cookie: cookies },
+    responseType: 'json'
+  })
+
+  const realUrl = initial.data?.url
+  if (!realUrl) {
+    throw new Error(
+      'Download endpoint did not return a URL. Body: ' +
+        JSON.stringify(initial.data)
+    )
+  }
+
+  core.info('Downloading escrow-encrypted asset ...')
+
+  // The signed URL is pre-authenticated; do NOT forward the portal cookie.
+  const response = await axios.get(realUrl, {
     responseType: 'stream',
     maxRedirects: 5
   })

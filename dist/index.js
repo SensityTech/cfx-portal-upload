@@ -296182,6 +296182,22 @@ async function run() {
         });
         if (page.url().includes('portal.cfx.re')) {
             if (skipUpload) {
+                if (shouldDownload) {
+                    core.info('Skip upload requested with download: fetching latest active version ...');
+                    const cookies = await getCookies(browser);
+                    if (assetName && !assetId) {
+                        assetId = await (0, utils_1.resolveAssetId)(assetName, cookies);
+                    }
+                    const detail = await axios_1.default.get((0, utils_1.getUrl)('ASSET_DETAIL', { id: assetId }), { headers: { Cookie: cookies } });
+                    const active = [...detail.data.versions]
+                        .sort((a, b) => b.id - a.id)
+                        .find(v => v.state === 'active');
+                    if (!active) {
+                        throw new Error('No active version available to download.');
+                    }
+                    await (0, utils_1.downloadAsset)(assetId, active.id, cookies, downloadPath);
+                    return;
+                }
                 core.info('Redirected to CFX Portal. Skipping upload ...');
                 return;
             }
@@ -296884,9 +296900,20 @@ async function downloadAsset(assetId, versionId, cookies, downloadPath) {
         version_id: versionId,
         pack_id: packId
     });
-    core.info(`Downloading escrow-encrypted asset from ${endpoint} ...`);
-    const response = await axios_1.default.get(endpoint, {
+    core.info(`Fetching signed download URL from ${endpoint} ...`);
+    // The pack download endpoint returns a JSON { url } with a signed CDN URL.
+    const initial = await axios_1.default.get(endpoint, {
         headers: { Cookie: cookies },
+        responseType: 'json'
+    });
+    const realUrl = initial.data?.url;
+    if (!realUrl) {
+        throw new Error('Download endpoint did not return a URL. Body: ' +
+            JSON.stringify(initial.data));
+    }
+    core.info('Downloading escrow-encrypted asset ...');
+    // The signed URL is pre-authenticated; do NOT forward the portal cookie.
+    const response = await axios_1.default.get(realUrl, {
         responseType: 'stream',
         maxRedirects: 5
     });
