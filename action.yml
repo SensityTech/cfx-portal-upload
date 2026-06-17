@@ -58,6 +58,12 @@ inputs:
       'Local path where the downloaded encrypted package is written.
       Defaults to "asset-{assetId or download}.zip".'
     required: false
+  keepVersions:
+    description:
+      'If set, delete the oldest versions before upload so that at most this many
+      versions remain after the upload (avoids the CFX max-versions cap). Unset =
+      no pruning.'
+    required: false
 
 runs:
   using: node20

@@ -526,3 +526,43 @@ export async function downloadAsset(
 
   core.info(`Downloaded asset saved to ${downloadPath}`)
 }
+
+/**
+ * Deletes the oldest asset versions so that, after one new upload, at most
+ * `keepVersions` remain. Prevents hitting the CFX max-versions cap (409
+ * MAX_VERSIONS_REACHED). The newest versions (including the active one) are kept.
+ * @param assetId
+ * @param cookies
+ * @param keepVersions Number of versions to keep AFTER the upcoming upload.
+ */
+export async function pruneOldestVersions(
+  assetId: string,
+  cookies: string,
+  keepVersions: number
+): Promise<void> {
+  if (!Number.isFinite(keepVersions) || keepVersions <= 0) {
+    return
+  }
+
+  const versions = await getAssetVersions(assetId, cookies)
+
+  // Oldest first (version ids increment over time).
+  const sorted = [...versions].sort((a, b) => a.id - b.id)
+
+  // After the upcoming upload there will be (current - deleteCount + 1) versions.
+  const deleteCount = sorted.length + 1 - keepVersions
+  if (deleteCount <= 0) {
+    core.info(
+      `Asset has ${sorted.length} version(s); no pruning needed (keep ${keepVersions}).`
+    )
+    return
+  }
+
+  core.info(
+    `Pruning ${deleteCount} oldest version(s) to keep ${keepVersions} after upload ...`
+  )
+
+  for (let i = 0; i < deleteCount; i++) {
+    await deleteAssetVersion(assetId, sorted[i].id, cookies)
+  }
+}

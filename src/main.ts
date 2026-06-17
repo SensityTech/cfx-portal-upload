@@ -19,7 +19,8 @@ import {
   getAssetVersions,
   deleteAssetVersion,
   waitForVersionActive,
-  downloadAsset
+  downloadAsset,
+  pruneOldestVersions
 } from './utils'
 
 /**
@@ -49,6 +50,8 @@ export async function run(): Promise<void> {
     const shouldDownload = core.getInput('download').toLowerCase() === 'true'
     const downloadPath =
       core.getInput('downloadPath') || `asset-${assetId || 'download'}.zip`
+
+    const keepVersions = parseInt(core.getInput('keepVersions'))
 
     const chunkSize = parseInt(core.getInput('chunkSize'))
     const maxRetries = parseInt(core.getInput('maxRetries'))
@@ -102,6 +105,8 @@ export async function run(): Promise<void> {
       if (assetName) {
         assetId = await resolveAssetId(assetName, cookies)
       }
+
+      await pruneOldestVersions(assetId, cookies, keepVersions)
 
       zipPath = await getZipPath(assetName, zipPath, makeZip)
       const uploadedVersionId = await uploadZip(

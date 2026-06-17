@@ -296147,6 +296147,7 @@ async function run() {
         const deleteOlderVersions = core.getInput('deleteOlderVersions').toLowerCase() === 'true';
         const shouldDownload = core.getInput('download').toLowerCase() === 'true';
         const downloadPath = core.getInput('downloadPath') || `asset-${assetId || 'download'}.zip`;
+        const keepVersions = parseInt(core.getInput('keepVersions'));
         const chunkSize = parseInt(core.getInput('chunkSize'));
         const maxRetries = parseInt(core.getInput('maxRetries'));
         const betaInput = core.getInput('beta').toLowerCase();
@@ -296189,6 +296190,7 @@ async function run() {
             if (assetName) {
                 assetId = await (0, utils_1.resolveAssetId)(assetName, cookies);
             }
+            await (0, utils_1.pruneOldestVersions)(assetId, cookies, keepVersions);
             zipPath = await getZipPath(assetName, zipPath, makeZip);
             const uploadedVersionId = await uploadZip(zipPath, assetId, chunkSize, cookies, beta, version, changelog);
             if (deleteOlderVersions) {
@@ -296505,6 +296507,7 @@ exports.getAssetVersions = getAssetVersions;
 exports.deleteAssetVersion = deleteAssetVersion;
 exports.waitForVersionActive = waitForVersionActive;
 exports.downloadAsset = downloadAsset;
+exports.pruneOldestVersions = pruneOldestVersions;
 const browsers_1 = __nccwpck_require__(73403);
 const types_1 = __nccwpck_require__(38522);
 const os_1 = __nccwpck_require__(70857);
@@ -296881,6 +296884,32 @@ async function downloadAsset(assetId, versionId, cookies, downloadPath) {
         writer.on('error', reject);
     });
     core.info(`Downloaded asset saved to ${downloadPath}`);
+}
+/**
+ * Deletes the oldest asset versions so that, after one new upload, at most
+ * `keepVersions` remain. Prevents hitting the CFX max-versions cap (409
+ * MAX_VERSIONS_REACHED). The newest versions (including the active one) are kept.
+ * @param assetId
+ * @param cookies
+ * @param keepVersions Number of versions to keep AFTER the upcoming upload.
+ */
+async function pruneOldestVersions(assetId, cookies, keepVersions) {
+    if (!Number.isFinite(keepVersions) || keepVersions <= 0) {
+        return;
+    }
+    const versions = await getAssetVersions(assetId, cookies);
+    // Oldest first (version ids increment over time).
+    const sorted = [...versions].sort((a, b) => a.id - b.id);
+    // After the upcoming upload there will be (current - deleteCount + 1) versions.
+    const deleteCount = sorted.length + 1 - keepVersions;
+    if (deleteCount <= 0) {
+        core.info(`Asset has ${sorted.length} version(s); no pruning needed (keep ${keepVersions}).`);
+        return;
+    }
+    core.info(`Pruning ${deleteCount} oldest version(s) to keep ${keepVersions} after upload ...`);
+    for (let i = 0; i < deleteCount; i++) {
+        await deleteAssetVersion(assetId, sorted[i].id, cookies);
+    }
 }
 
 
