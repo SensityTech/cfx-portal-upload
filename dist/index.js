@@ -296443,7 +296443,7 @@ var Urls;
     Urls["COMPLETE_UPLOAD"] = "assets/{id}/versions/{version_id}/complete-upload";
     Urls["ASSET_DETAIL"] = "assets/{id}";
     Urls["DELETE_VERSION"] = "assets/{id}/versions/{version_id}";
-    Urls["DOWNLOAD"] = "assets/{id}/download";
+    Urls["DOWNLOAD"] = "assets/{id}/versions/{version_id}/packs/{pack_id}/download";
 })(Urls || (exports.Urls = Urls = {}));
 
 
@@ -296858,26 +296858,38 @@ async function waitForVersionActive(assetId, versionId, cookies, timeoutMs = 300
 }
 /**
  * Downloads the escrow-encrypted package for a specific asset version.
- * The portal returns a signed URL which is then streamed to disk.
+ * The download URL is version + pack scoped:
+ *   assets/{id}/versions/{version_id}/packs/{pack_id}/download
+ * The pack id is resolved from the version's `packs` list (ASSET_DETAIL).
  * @param assetId
  * @param versionId
  * @param cookies
  * @param downloadPath The file path where the asset will be saved.
  */
 async function downloadAsset(assetId, versionId, cookies, downloadPath) {
-    const endpoint = getUrl('DOWNLOAD', { id: assetId });
-    core.info(`Fetching download URL from ${endpoint} (version ${versionId}) ...`);
-    const initial = await axios_1.default.get(endpoint, {
-        headers: { Cookie: cookies },
-        responseType: 'json'
-    });
-    const realUrl = initial.data?.url;
-    if (!realUrl) {
-        throw new Error('Download endpoint did not return a URL. Body: ' +
-            JSON.stringify(initial.data));
+    // Resolve the pack id for this version (download URL is version+pack scoped).
+    const detail = await axios_1.default.get(getUrl('ASSET_DETAIL', { id: assetId }), { headers: { Cookie: cookies } });
+    const version = detail.data.versions.find(v => v.id === versionId);
+    if (!version) {
+        throw new Error(`Version ${versionId} not found on asset ${assetId}.`);
     }
-    core.info('Downloading escrow-encrypted asset ...');
-    const response = await axios_1.default.get(realUrl, { responseType: 'stream' });
+    const packs = version.packs ?? [];
+    if (packs.length === 0) {
+        throw new Error(`No packs found for version ${versionId}. Version: ${JSON.stringify(version)}`);
+    }
+    // Newest pack for the version.
+    const packId = packs[packs.length - 1].id;
+    const endpoint = getUrl('DOWNLOAD', {
+        id: assetId,
+        version_id: versionId,
+        pack_id: packId
+    });
+    core.info(`Downloading escrow-encrypted asset from ${endpoint} ...`);
+    const response = await axios_1.default.get(endpoint, {
+        headers: { Cookie: cookies },
+        responseType: 'stream',
+        maxRedirects: 5
+    });
     const writer = fs_1.default.createWriteStream(downloadPath);
     response.data.pipe(writer);
     await new Promise((resolve, reject) => {

@@ -1,10 +1,5 @@
 import { Browser, getInstalledBrowsers, install } from '@puppeteer/browsers'
-import {
-  AssetDetail,
-  DownloadUrlResponse,
-  SearchResponse,
-  Urls
-} from './types'
+import { AssetDetail, SearchResponse, Urls } from './types'
 import { homedir } from 'os'
 import { join } from 'path'
 
@@ -488,7 +483,9 @@ export async function waitForVersionActive(
 
 /**
  * Downloads the escrow-encrypted package for a specific asset version.
- * The portal returns a signed URL which is then streamed to disk.
+ * The download URL is version + pack scoped:
+ *   assets/{id}/versions/{version_id}/packs/{pack_id}/download
+ * The pack id is resolved from the version's `packs` list (ASSET_DETAIL).
  * @param assetId
  * @param versionId
  * @param cookies
@@ -500,25 +497,42 @@ export async function downloadAsset(
   cookies: string,
   downloadPath: string
 ): Promise<void> {
-  const endpoint = getUrl('DOWNLOAD', { id: assetId })
-  core.info(`Fetching download URL from ${endpoint} (version ${versionId}) ...`)
+  // Resolve the pack id for this version (download URL is version+pack scoped).
+  const detail = await axios.get<AssetDetail>(
+    getUrl('ASSET_DETAIL', { id: assetId }),
+    { headers: { Cookie: cookies } }
+  )
 
-  const initial = await axios.get<DownloadUrlResponse>(endpoint, {
-    headers: { Cookie: cookies },
-    responseType: 'json'
-  })
+  const version = detail.data.versions.find(v => v.id === versionId)
+  if (!version) {
+    throw new Error(`Version ${versionId} not found on asset ${assetId}.`)
+  }
 
-  const realUrl = initial.data?.url
-  if (!realUrl) {
+  const packs = version.packs ?? []
+  if (packs.length === 0) {
     throw new Error(
-      'Download endpoint did not return a URL. Body: ' +
-        JSON.stringify(initial.data)
+      `No packs found for version ${versionId}. Version: ${JSON.stringify(
+        version
+      )}`
     )
   }
 
-  core.info('Downloading escrow-encrypted asset ...')
+  // Newest pack for the version.
+  const packId = packs[packs.length - 1].id
 
-  const response = await axios.get(realUrl, { responseType: 'stream' })
+  const endpoint = getUrl('DOWNLOAD', {
+    id: assetId,
+    version_id: versionId,
+    pack_id: packId
+  })
+  core.info(`Downloading escrow-encrypted asset from ${endpoint} ...`)
+
+  const response = await axios.get(endpoint, {
+    headers: { Cookie: cookies },
+    responseType: 'stream',
+    maxRedirects: 5
+  })
+
   const writer = fs.createWriteStream(downloadPath)
   ;(response.data as Readable).pipe(writer)
 
