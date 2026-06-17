@@ -17,7 +17,9 @@ import {
   getFxManifestVersion,
   getChangelog,
   getAssetVersions,
-  deleteAssetVersion
+  deleteAssetVersion,
+  waitForVersionActive,
+  downloadAsset
 } from './utils'
 
 /**
@@ -43,6 +45,10 @@ export async function run(): Promise<void> {
     const skipUpload = core.getInput('skipUpload').toLowerCase() === 'true'
     const deleteOlderVersions =
       core.getInput('deleteOlderVersions').toLowerCase() === 'true'
+
+    const shouldDownload = core.getInput('download').toLowerCase() === 'true'
+    const downloadPath =
+      core.getInput('downloadPath') || `asset-${assetId || 'download'}.zip`
 
     const chunkSize = parseInt(core.getInput('chunkSize'))
     const maxRetries = parseInt(core.getInput('maxRetries'))
@@ -116,6 +122,12 @@ export async function run(): Promise<void> {
             await deleteAssetVersion(assetId, v.id, cookies)
           }
         }
+      }
+
+      if (shouldDownload) {
+        core.info('Waiting for the uploaded version to become active ...')
+        await waitForVersionActive(assetId, uploadedVersionId, cookies)
+        await downloadAsset(assetId, uploadedVersionId, cookies, downloadPath)
       }
     } else {
       throw new Error(

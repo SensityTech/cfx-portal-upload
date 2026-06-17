@@ -48,6 +48,16 @@ inputs:
     description: 'The chunk size to split the file into'
     required: false
     default: 2097152
+  download:
+    description:
+      'Download the escrow-encrypted package after upload (true or false)'
+    required: false
+    default: false
+  downloadPath:
+    description:
+      'Local path where the downloaded encrypted package is written.
+      Defaults to "asset-{assetId or download}.zip".'
+    required: false
 
 runs:
   using: node20

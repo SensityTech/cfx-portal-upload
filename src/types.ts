@@ -33,6 +33,10 @@ export interface SSOResponseBody {
   url: string
 }
 
+export interface DownloadUrlResponse {
+  url: string
+}
+
 export enum Urls {
   API = 'https://portal-api.cfx.re/v1/',
   SSO = 'auth/discourse?return=',
@@ -40,5 +44,6 @@ export enum Urls {
   UPLOAD_CHUNK = 'assets/{id}/versions/{version_id}/upload-chunk',
   COMPLETE_UPLOAD = 'assets/{id}/versions/{version_id}/complete-upload',
   ASSET_DETAIL = 'assets/{id}',
-  DELETE_VERSION = 'assets/{id}/versions/{version_id}'
+  DELETE_VERSION = 'assets/{id}/versions/{version_id}',
+  DOWNLOAD = 'assets/{id}/versions/{version_id}/download'
 }

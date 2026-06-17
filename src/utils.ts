@@ -1,5 +1,10 @@
 import { Browser, getInstalledBrowsers, install } from '@puppeteer/browsers'
-import { AssetDetail, SearchResponse, Urls } from './types'
+import {
+  AssetDetail,
+  DownloadUrlResponse,
+  SearchResponse,
+  Urls
+} from './types'
 import { homedir } from 'os'
 import { join } from 'path'
 
@@ -10,6 +15,7 @@ import path from 'path'
 import yazl from 'yazl'
 import yauzl from 'yauzl'
 import { Entry } from 'yauzl'
+import { Readable } from 'stream'
 
 const fileCache: Record<string, string> = {}
 
@@ -431,4 +437,92 @@ export async function deleteAssetVersion(
       }
     }
   )
+}
+
+/**
+ * Polls the asset detail endpoint until the given version is 'active'
+ * (escrow processing finished) so it can be downloaded.
+ * @throws If the version becomes invalid/failed or the timeout elapses.
+ */
+export async function waitForVersionActive(
+  assetId: string,
+  versionId: number,
+  cookies: string,
+  timeoutMs = 300000,
+  intervalMs = 5000
+): Promise<void> {
+  const start = Date.now()
+
+  while (Date.now() - start < timeoutMs) {
+    const response = await axios.get<AssetDetail>(
+      getUrl('ASSET_DETAIL', { id: assetId }),
+      { headers: { Cookie: cookies } }
+    )
+
+    const version = response.data.versions.find(v => v.id === versionId)
+
+    if (version) {
+      core.debug(`Version ${versionId} state: ${version.state}`)
+
+      if (version.state === 'active') {
+        core.info('Uploaded version is active and ready to download.')
+        return
+      }
+
+      if (version.state === 'invalid' || version.state === 'failed') {
+        throw new Error(
+          `Asset version ${versionId} ended in state '${version.state}'.`
+        )
+      }
+    } else {
+      core.debug(`Version ${versionId} not listed yet, waiting...`)
+    }
+
+    await new Promise(resolve => setTimeout(resolve, intervalMs))
+  }
+
+  throw new Error(
+    `Asset version ${versionId} did not become active within ${timeoutMs}ms.`
+  )
+}
+
+/**
+ * Downloads the escrow-encrypted package for a specific asset version.
+ * The portal returns a signed URL which is then streamed to disk.
+ * @param assetId
+ * @param versionId
+ * @param cookies
+ * @param downloadPath The file path where the asset will be saved.
+ */
+export async function downloadAsset(
+  assetId: string,
+  versionId: number,
+  cookies: string,
+  downloadPath: string
+): Promise<void> {
+  const endpoint = getUrl('DOWNLOAD', { id: assetId, version_id: versionId })
+  core.info(`Fetching download URL from ${endpoint} ...`)
+
+  const initial = await axios.get<DownloadUrlResponse>(endpoint, {
+    headers: { Cookie: cookies },
+    responseType: 'json'
+  })
+
+  const realUrl = initial.data.url
+  if (!realUrl) {
+    throw new Error('Download endpoint did not return a URL.')
+  }
+
+  core.info('Downloading escrow-encrypted asset ...')
+
+  const response = await axios.get(realUrl, { responseType: 'stream' })
+  const writer = fs.createWriteStream(downloadPath)
+  ;(response.data as Readable).pipe(writer)
+
+  await new Promise<void>((resolve, reject) => {
+    writer.on('finish', () => resolve())
+    writer.on('error', reject)
+  })
+
+  core.info(`Downloaded asset saved to ${downloadPath}`)
 }

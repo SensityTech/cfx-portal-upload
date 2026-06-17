@@ -296145,6 +296145,8 @@ async function run() {
         const makeZip = core.getInput('makeZip').toLowerCase() === 'true';
         const skipUpload = core.getInput('skipUpload').toLowerCase() === 'true';
         const deleteOlderVersions = core.getInput('deleteOlderVersions').toLowerCase() === 'true';
+        const shouldDownload = core.getInput('download').toLowerCase() === 'true';
+        const downloadPath = core.getInput('downloadPath') || `asset-${assetId || 'download'}.zip`;
         const chunkSize = parseInt(core.getInput('chunkSize'));
         const maxRetries = parseInt(core.getInput('maxRetries'));
         const betaInput = core.getInput('beta').toLowerCase();
@@ -296197,6 +296199,11 @@ async function run() {
                         await (0, utils_1.deleteAssetVersion)(assetId, v.id, cookies);
                     }
                 }
+            }
+            if (shouldDownload) {
+                core.info('Waiting for the uploaded version to become active ...');
+                await (0, utils_1.waitForVersionActive)(assetId, uploadedVersionId, cookies);
+                await (0, utils_1.downloadAsset)(assetId, uploadedVersionId, cookies, downloadPath);
             }
         }
         else {
@@ -296434,6 +296441,7 @@ var Urls;
     Urls["COMPLETE_UPLOAD"] = "assets/{id}/versions/{version_id}/complete-upload";
     Urls["ASSET_DETAIL"] = "assets/{id}";
     Urls["DELETE_VERSION"] = "assets/{id}/versions/{version_id}";
+    Urls["DOWNLOAD"] = "assets/{id}/versions/{version_id}/download";
 })(Urls || (exports.Urls = Urls = {}));
 
 
@@ -296495,6 +296503,8 @@ exports.getCommitMessage = getCommitMessage;
 exports.getChangelog = getChangelog;
 exports.getAssetVersions = getAssetVersions;
 exports.deleteAssetVersion = deleteAssetVersion;
+exports.waitForVersionActive = waitForVersionActive;
+exports.downloadAsset = downloadAsset;
 const browsers_1 = __nccwpck_require__(73403);
 const types_1 = __nccwpck_require__(38522);
 const os_1 = __nccwpck_require__(70857);
@@ -296815,6 +296825,62 @@ async function deleteAssetVersion(assetId, versionId, cookies) {
             Cookie: cookies
         }
     });
+}
+/**
+ * Polls the asset detail endpoint until the given version is 'active'
+ * (escrow processing finished) so it can be downloaded.
+ * @throws If the version becomes invalid/failed or the timeout elapses.
+ */
+async function waitForVersionActive(assetId, versionId, cookies, timeoutMs = 300000, intervalMs = 5000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        const response = await axios_1.default.get(getUrl('ASSET_DETAIL', { id: assetId }), { headers: { Cookie: cookies } });
+        const version = response.data.versions.find(v => v.id === versionId);
+        if (version) {
+            core.debug(`Version ${versionId} state: ${version.state}`);
+            if (version.state === 'active') {
+                core.info('Uploaded version is active and ready to download.');
+                return;
+            }
+            if (version.state === 'invalid' || version.state === 'failed') {
+                throw new Error(`Asset version ${versionId} ended in state '${version.state}'.`);
+            }
+        }
+        else {
+            core.debug(`Version ${versionId} not listed yet, waiting...`);
+        }
+        await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+    throw new Error(`Asset version ${versionId} did not become active within ${timeoutMs}ms.`);
+}
+/**
+ * Downloads the escrow-encrypted package for a specific asset version.
+ * The portal returns a signed URL which is then streamed to disk.
+ * @param assetId
+ * @param versionId
+ * @param cookies
+ * @param downloadPath The file path where the asset will be saved.
+ */
+async function downloadAsset(assetId, versionId, cookies, downloadPath) {
+    const endpoint = getUrl('DOWNLOAD', { id: assetId, version_id: versionId });
+    core.info(`Fetching download URL from ${endpoint} ...`);
+    const initial = await axios_1.default.get(endpoint, {
+        headers: { Cookie: cookies },
+        responseType: 'json'
+    });
+    const realUrl = initial.data.url;
+    if (!realUrl) {
+        throw new Error('Download endpoint did not return a URL.');
+    }
+    core.info('Downloading escrow-encrypted asset ...');
+    const response = await axios_1.default.get(realUrl, { responseType: 'stream' });
+    const writer = fs_1.default.createWriteStream(downloadPath);
+    response.data.pipe(writer);
+    await new Promise((resolve, reject) => {
+        writer.on('finish', () => resolve());
+        writer.on('error', reject);
+    });
+    core.info(`Downloaded asset saved to ${downloadPath}`);
 }
 
 
