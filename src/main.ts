@@ -106,8 +106,21 @@ export async function run(): Promise<void> {
       )
     }
   } catch (error) {
+    // Surface HTTP error details (status + response body) so API failures like
+    // 400 on /re-upload are diagnosable instead of just "status code 400".
+    const e = error as any
+    if (e && e.response) {
+      core.error(`HTTP ${e.response.status} from ${e.config?.url ?? 'unknown'}`)
+      try {
+        core.error('Response body: ' + JSON.stringify(e.response.data))
+      } catch {
+        core.error('Response body: <unserializable>')
+      }
+    }
     if (error instanceof Error) {
       core.setFailed(error.message)
+    } else {
+      core.setFailed(String(error))
     }
   } finally {
     await browser.close()
